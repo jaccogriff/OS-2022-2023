@@ -4,9 +4,10 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <string.h>
+#include <stdlib.h>
 
 #define CD "cd"
-#define EXIT "cd"
+#define EXIT "exit"
 
 void initialize(void)
 {
@@ -15,14 +16,21 @@ void initialize(void)
         prompt = "vush$ ";
 }
 
+void printIfError(int resultOfOperation)
+{
+    if(resultOfOperation == -1){
+            perror("Error: ");
+    }
+}
+
 void handleExternal(node_t *node)
 {
     int child_status;
     if (fork() == 0)
     {
-        if(execvp(node->command.program, node->command.argv) == -1){
-            perror("Error: ");
-        }
+        printIfError(
+            execvp(node->command.program, node->command.argv)
+        );
     } 
     else
     {
@@ -30,7 +38,17 @@ void handleExternal(node_t *node)
     }
 }
 
+void handleExit(void)
+{
+    exit(EXIT_SUCCESS);
+}
 
+void handleCd(node_t *node)
+{
+    printIfError(
+        chdir(node->command.argv[1])
+    );
+}
 
 
 void run_command(node_t *node)
@@ -45,11 +63,11 @@ void run_command(node_t *node)
 
         if (strcmp(node->command.program, CD) == 0)
         {
-            //handleCd();
+            handleCd(node);
         }
-        else if(strcmp(node->command.program, CD) == 0)
+        else if(strcmp(node->command.program, EXIT) == 0)
         {
-            //handleExit();
+            handleExit();
         }
         else
         {
@@ -57,8 +75,9 @@ void run_command(node_t *node)
         }
         
         break;
-    case NODE_PIPE:
-        printf("this is a pipe");
+    case NODE_SEQUENCE:
+        run_command(node->sequence.first);
+        run_command(node->sequence.second);
         break;
     default:
         break;
