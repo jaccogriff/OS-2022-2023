@@ -38,9 +38,10 @@ void handleExternal(node_t *node)
     }
 }
 
-void handleExit(void)
+void handleExit(node_t *node)
 {
-    exit(EXIT_SUCCESS);
+    int exitCode = atoi(node->command.argv[1]);
+    exit(exitCode);
 }
 
 void handleCd(node_t *node)
@@ -67,7 +68,7 @@ void run_command(node_t *node)
         }
         else if(strcmp(node->command.program, EXIT) == 0)
         {
-            handleExit();
+            handleExit(node);
         }
         else
         {
@@ -78,6 +79,13 @@ void run_command(node_t *node)
     case NODE_SEQUENCE:
         run_command(node->sequence.first);
         run_command(node->sequence.second);
+        break;
+    case NODE_PIPE:;
+        size_t i;
+        for (i = 0; i < node->pipe.n_parts; ++i)
+            run_command(node->pipe.parts[i]);
+        
+        
         break;
     default:
         break;
