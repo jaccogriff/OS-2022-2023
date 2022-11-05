@@ -1,5 +1,12 @@
 #include "parser/ast.h"
 #include "shell.h"
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <string.h>
+
+#define CD "cd"
+#define EXIT "cd"
 
 void initialize(void)
 {
@@ -8,25 +15,47 @@ void initialize(void)
         prompt = "vush$ ";
 }
 
+void handleExternal(node_t *node)
+{
+    int child_status;
+    if (fork() == 0)
+    {
+        if(execvp(node->command.program, node->command.argv) == -1){
+            perror("Error: ");
+        }
+    } 
+    else
+    {
+        wait(&child_status);
+    }
+}
+
+
+
+
 void run_command(node_t *node)
 {
     /* Print parsed input for testing - comment this when running the tests! */
     //print_tree(node);
 
-    int pid, child_status;
 
     switch (node->type)
     {
     case NODE_COMMAND:
 
-        if (fork() == 0)
+        if (strcmp(node->command.program, CD) == 0)
         {
-            execvp(node->command.program, node->command.argv);
-        } 
+            //handleCd();
+        }
+        else if(strcmp(node->command.program, CD) == 0)
+        {
+            //handleExit();
+        }
         else
         {
-            wait(&child_status);
+            handleExternal(node);
         }
+        
         break;
     case NODE_PIPE:
         printf("this is a pipe");
@@ -37,5 +66,6 @@ void run_command(node_t *node)
 
     if (prompt)
         prompt = "vush$ ";
+
 
 }
