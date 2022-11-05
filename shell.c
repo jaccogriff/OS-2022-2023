@@ -11,8 +11,31 @@ void initialize(void)
 void run_command(node_t *node)
 {
     /* Print parsed input for testing - comment this when running the tests! */
-    print_tree(node);
+    //print_tree(node);
+
+    int pid, child_status;
+
+    switch (node->type)
+    {
+    case NODE_COMMAND:
+
+        if (fork() == 0)
+        {
+            execvp(node->command.program, node->command.argv);
+        } 
+        else
+        {
+            wait(&child_status);
+        }
+        break;
+    case NODE_PIPE:
+        printf("this is a pipe");
+        break;
+    default:
+        break;
+    }
 
     if (prompt)
         prompt = "vush$ ";
+
 }
