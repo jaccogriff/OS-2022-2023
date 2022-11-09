@@ -8,6 +8,11 @@
 
 #define CD "cd"
 #define EXIT "exit"
+#define PIPE_RD 0
+#define PIPE_WR 1
+#define STDIN 0
+#define STDOUT 1
+
 
 void initialize(void)
 {
@@ -51,6 +56,40 @@ void handleCd(node_t *node)
     );
 }
 
+void handlePipe(node_t *node){
+    
+    int fd[2];
+    int cat_id, sort_id;
+    pipe(fd);
+    cat_id = fork();
+    if ( cat_id == 0)
+    {
+        close(fd[PIPE_RD]);
+        close(STDOUT);
+        dup(fd[PIPE_WR]);
+
+        node_t *pipe_node = node->pipe.parts[0];
+        
+        execvp(pipe_node->command.program, pipe_node->command.argv);
+    } 
+    sort_id = fork();
+    if ( sort_id == 0)
+    {
+        close(fd[PIPE_WR]);
+        close(STDIN);
+        dup(fd[PIPE_RD]);
+        node_t *pipe_node = node->pipe.parts[1];
+        execvp(pipe_node->command.program, pipe_node->command.argv);
+    } 
+
+    close(fd[PIPE_RD]);
+    close(fd[PIPE_WR]);
+
+    waitpid(cat_id, NULL, 0);
+    waitpid(sort_id, NULL, 0);
+
+}
+
 
 void run_command(node_t *node)
 {
@@ -81,10 +120,7 @@ void run_command(node_t *node)
         run_command(node->sequence.second);
         break;
     case NODE_PIPE:;
-        size_t i;
-        for (i = 0; i < node->pipe.n_parts; ++i)
-            run_command(node->pipe.parts[i]);
-        
+        handlePipe(node);
         
         break;
     default:
