@@ -56,8 +56,68 @@ void handleCd(node_t *node)
     );
 }
 
+
+void executeToPipe( node_t *pipe_node, int newPipe[]){
+    pipe(newPipe);
+    int pid = fork();
+    if ( pid == 0)
+    {
+        close(newPipe[PIPE_RD]);
+        dup2(newPipe[PIPE_WR], STDOUT);
+        execvp(pipe_node->command.program, pipe_node->command.argv);
+    } 
+    close(newPipe[PIPE_WR]); // close pipe WR end when finished writing to it (start closing pipe)
+    waitpid(pid, NULL, 0);
+}
+
+void executeFromPipeToSTDOUT(node_t *pipe_node, int pipeFDs[]){
+    int pid = fork();
+    if ( pid == 0)
+    {
+        close(pipeFDs[PIPE_WR]);
+        dup2(pipeFDs[PIPE_RD], STDIN);
+        execvp(pipe_node->command.program, pipe_node->command.argv);
+    } 
+    close(pipeFDs[PIPE_RD]); // close pipe RD end when finished reading from it (finish closing pipe)
+    waitpid(pid, NULL, 0);
+}
+
+void executeFromPipeToPipe(node_t *pipe_node, int oldPipe[], int newPipe[]){
+    pipe(newPipe); // open new pipe
+    int pid = fork();
+    if ( pid == 0)
+    {
+        close(oldPipe[PIPE_WR]); // close unused pipe ends on child
+        close(newPipe[PIPE_RD]);
+
+        dup2(oldPipe[PIPE_RD], STDIN);
+        dup2(newPipe[PIPE_WR], STDOUT);
+        execvp(pipe_node->command.program, pipe_node->command.argv);
+    } 
+    close(oldPipe[PIPE_RD]); // finish closing old pipe
+    close(newPipe[PIPE_WR]); // close WR end of new pipe (start closing pipe)
+    waitpid(pid, NULL, 0);
+}
+
 void handlePipe(node_t *node){
+    int pipeFDs[2];
+    executeToPipe(node->pipe.parts[0], pipeFDs); 
+
     
+    int oldPipe[2];
+    memcpy(oldPipe, pipeFDs, sizeof(int) * 2);
+
+    for (size_t i = 1; i < node->pipe.n_parts - 1; i++)
+    {
+        int newPipe[2];
+        executeFromPipeToPipe(node->pipe.parts[i], oldPipe, newPipe);
+        memcpy(oldPipe, newPipe, sizeof(int) * 2);
+
+    }
+    
+    executeFromPipeToSTDOUT(node->pipe.parts[node->pipe.n_parts - 1], oldPipe);
+    
+    /*
     int fd[2];
     int cat_id, sort_id;
     pipe(fd);
@@ -86,7 +146,7 @@ void handlePipe(node_t *node){
     close(fd[PIPE_WR]);
 
     waitpid(cat_id, NULL, 0);
-    waitpid(sort_id, NULL, 0);
+    waitpid(sort_id, NULL, 0);*/
 
 }
 
