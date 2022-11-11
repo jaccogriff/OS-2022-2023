@@ -5,6 +5,7 @@
 #include <sys/wait.h>
 #include <string.h>
 #include <stdlib.h>
+#include <signal.h>
 
 #define CD "cd"
 #define EXIT "exit"
@@ -37,10 +38,8 @@ void handleExternal(node_t *node)
             execvp(node->command.program, node->command.argv)
         );
     } 
-    else
-    {
-        wait(&child_status);
-    }
+    wait(&child_status);
+    
 }
 
 void handleExit(node_t *node)
@@ -56,66 +55,90 @@ void handleCd(node_t *node)
     );
 }
 
+void handleStopSignal(){
+    return;
+}
 
-void executeToPipe( node_t *pipe_node, int newPipe[], int *pid){
-    pipe(newPipe);
-    *pid = fork();
-    if ( *pid == 0)
+void executeCommandOnPipe(node_t *pipe_node){
+    switch (pipe_node->type)
+    {  
+    case NODE_COMMAND: 
+        execvp(pipe_node->command.program, pipe_node->command.argv);
+        break;
+    case NODE_SEQUENCE:
+        executeCommandOnPipe(pipe_node->sequence.first);
+        executeCommandOnPipe(pipe_node->sequence.second);
+        break;
+    default:
+        break;
+    }
+}
+
+
+int executeToPipe( node_t *pipe_node, int newPipe[]){
+    int pid = fork();
+    if ( pid == 0)
     {
         close(newPipe[PIPE_RD]);
         dup2(newPipe[PIPE_WR], STDOUT);
-        execvp(pipe_node->command.program, pipe_node->command.argv);
+        executeCommandOnPipe(pipe_node);
     } 
     close(newPipe[PIPE_WR]); // close pipe WR end when finished writing to it (start closing pipe)
+    return pid;
 }
 
-void executeFromPipeToSTDOUT(node_t *pipe_node, int pipeFDs[], int *pid){
-    *pid = fork();
-    if ( *pid == 0)
-    {
-        close(pipeFDs[PIPE_WR]);
-        dup2(pipeFDs[PIPE_RD], STDIN);
-        execvp(pipe_node->command.program, pipe_node->command.argv);
-    } 
-    close(pipeFDs[PIPE_RD]); // close pipe RD end when finished reading from it (finish closing pipe)
-}
-
-void executeFromPipeToPipe(node_t *pipe_node, int oldPipe[], int newPipe[], int *pid){
-    pipe(newPipe); // open new pipe
-    *pid = fork();
-    if ( *pid == 0)
+int executeFromPipeToPipe(node_t *pipe_node, int oldPipe[], int newPipe[]){
+    int pid = fork();
+    if ( pid == 0)
     {
         close(oldPipe[PIPE_WR]); // close unused pipe ends on child
         close(newPipe[PIPE_RD]);
 
         dup2(oldPipe[PIPE_RD], STDIN);
         dup2(newPipe[PIPE_WR], STDOUT);
-        execvp(pipe_node->command.program, pipe_node->command.argv);
+        executeCommandOnPipe(pipe_node);
     } 
     close(oldPipe[PIPE_RD]); // finish closing old pipe
     close(newPipe[PIPE_WR]); // close WR end of new pipe (start closing pipe)
+    return pid;
 }
+
+int executeFromPipeToSTDOUT(node_t *pipe_node, int pipeFDs[]){
+    int pid = fork();
+    if ( pid == 0)
+    {
+        close(pipeFDs[PIPE_WR]);
+        dup2(pipeFDs[PIPE_RD], STDIN);
+        executeCommandOnPipe(pipe_node);
+    } 
+    close(pipeFDs[PIPE_RD]); // close pipe RD end when finished reading from it (finish closing pipe)
+    return pid;
+
+}
+
+
 
 void handlePipe(node_t *node){
     int pids[node->pipe.n_parts];
-    int pipeFDs[2];
-    executeToPipe(node->pipe.parts[0], pipeFDs, &pids[0]); 
+    int pipes[node->pipe.n_parts-1][2];
+    for (size_t i = 0; i < node->pipe.n_parts - 1; i++)
+    {
+        pipe(pipes[i]);
+    }
 
+    pids[0] = executeToPipe(node->pipe.parts[0], pipes[0]);
     
-    int oldPipe[2];
-    memcpy(oldPipe, pipeFDs, sizeof(int) * 2);
-
+    
     for (size_t i = 1; i < node->pipe.n_parts - 1; i++)
     {
-        int newPipe[2];
-        executeFromPipeToPipe(node->pipe.parts[i], oldPipe, newPipe, &pids[i]);
-        memcpy(oldPipe, newPipe, sizeof(int) * 2);
-
+        pids[i] = executeFromPipeToPipe(node->pipe.parts[i], pipes[i-1], pipes[i]);
     }
     
-    executeFromPipeToSTDOUT(node->pipe.parts[node->pipe.n_parts - 1], oldPipe, &pids[node->pipe.n_parts - 1]);
+    int lastCommandIndx = node->pipe.n_parts - 1;
+    pids[lastCommandIndx] = executeFromPipeToSTDOUT(node->pipe.parts[lastCommandIndx], pipes[lastCommandIndx-1]);
     
-    for (size_t i = 0; i < node->pipe.n_parts ; i++){
+    for (size_t i = 0; i < node->pipe.n_parts ; i++)
+    {
         waitpid(pids[i], NULL, 0);
     }
     
@@ -160,6 +183,7 @@ void run_command(node_t *node)
     /* Print parsed input for testing - comment this when running the tests! */
     //print_tree(node);
 
+    signal(SIGINT, &handleStopSignal);
 
     switch (node->type)
     {
